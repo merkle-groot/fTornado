@@ -12,7 +12,7 @@ interface IVerifier {
         uint[2] calldata _pA,
         uint[2][2] calldata _pB,
         uint[2] calldata _pC,
-        uint[4] calldata _pubSignals
+        uint[6] calldata _pubSignals
     ) external returns (bool);
 }
 
@@ -107,7 +107,15 @@ contract fTornado is ZamaEthereumConfig, MerkleTreeWithHistory, ERC7984 {
       - the recipient of funds
       - optional fee that goes to the transaction sender (usually a relay)
   */
-    function wrap(bytes calldata _proof, bytes32 _root, address _recipient, bytes32 _nullifierHash) external {
+    function wrap(
+        bytes calldata _proof,
+        bytes32 _root,
+        address _recipient,
+        bytes32 _nullifierHash,
+        address relayer,
+        uint256 fee,
+        uint256 refund
+    ) external {
         require(!nullifierHashes[_nullifierHash], "The note has been already spent");
         require(isKnownRoot(_root), "Cannot find your merkle root"); // Make sure to use a recent one
 
@@ -117,13 +125,20 @@ contract fTornado is ZamaEthereumConfig, MerkleTreeWithHistory, ERC7984 {
             (uint256[2], uint256[2][2], uint256[2])
         );
 
-        // The circuit outputs: [root, receiver, isWithdraw, nullifierHash]
+        // The circuit outputs: [root, receiver, nullifierHash, relayer, fee, refund]
         require(
             verifier.verifyProof(
                 pA,
                 pB,
                 pC,
-                [uint256(_root), uint256(uint160(_recipient)), uint256(0), uint256(_nullifierHash)]
+                [
+                    uint256(_root),
+                    uint256(uint160(_recipient)),
+                    uint256(_nullifierHash),
+                    uint256(uint160(relayer)),
+                    fee,
+                    refund
+                ]
             ),
             "Invalid wrap proof"
         );
@@ -133,7 +148,15 @@ contract fTornado is ZamaEthereumConfig, MerkleTreeWithHistory, ERC7984 {
         emit Wrap(_recipient, _nullifierHash);
     }
 
-    function withdraw(bytes calldata _proof, bytes32 _root, address _recipient, bytes32 _nullifierHash) external {
+    function withdraw(
+        bytes calldata _proof,
+        bytes32 _root,
+        address _recipient,
+        bytes32 _nullifierHash,
+        address relayer,
+        uint256 fee,
+        uint256 refund
+    ) external {
         require(!nullifierHashes[_nullifierHash], "The note has been already spent");
         require(isKnownRoot(_root), "Cannot find your merkle root"); // Make sure to use a recent one
 
@@ -149,7 +172,14 @@ contract fTornado is ZamaEthereumConfig, MerkleTreeWithHistory, ERC7984 {
                 pA,
                 pB,
                 pC,
-                [uint256(_root), uint256(uint160(_recipient)), uint256(1), uint256(_nullifierHash)]
+                [
+                    uint256(_root),
+                    uint256(uint160(_recipient)),
+                    uint256(_nullifierHash),
+                    uint256(uint160(relayer)),
+                    fee,
+                    refund
+                ]
             ),
             "Invalid withdraw proof"
         );

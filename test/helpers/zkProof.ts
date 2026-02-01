@@ -7,13 +7,15 @@ import { ethers } from "hardhat";
 export interface CircuitInput {
   root: string;
   receiver: string;
-  isWithdraw: string; // 0 for wrap, 1 for withdraw
   siblings: string[];
   isLeft: number[];
   nullifier: string;
   nullifierHash: string;
   secretKey: string;
   commitment: string;
+  relayer: string;
+  fee: string;
+  refund: string;
 }
 
 export interface ProofData {
@@ -173,7 +175,9 @@ export function generateCircuitInput(
   root: bigint,
   recipient: string,
   treeDepth: number = 31,
-  isWithdraw: boolean = false
+  relayer: string,
+  fee: bigint,
+  refund: bigint
 ): CircuitInput {
   // Pad siblings and isLeft arrays to tree depth
   // The circuit expects exactly treeDepth elements
@@ -197,13 +201,15 @@ export function generateCircuitInput(
   return {
     root: root.toString(),
     receiver: recipientAsUint,
-    isWithdraw: isWithdraw ? "1" : "0",
     siblings: paddedSiblings,
     isLeft: paddedIsLeft,
     nullifier: nullifier.toString(),
     nullifierHash: "", // This should be calculated using Poseidon
     secretKey: secret.toString(),
-    commitment: "", // This should be calculated using Poseidon
+    commitment: "", // This should be calculated using Poseidon,
+    relayer: relayer.toString(),
+    fee: fee.toString(),
+    refund: refund.toString()
   };
 }
 
