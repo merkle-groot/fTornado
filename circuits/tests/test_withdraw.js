@@ -34,7 +34,9 @@ describe("Withdraw circuit test", function () {
             const secretKey = BigInt(1337 + i);
             const nullifier = BigInt(123456 + i);
             const receiver = BigInt(1729 + i);
-            const isWithdraw = BigInt(i % 2);
+            const relayer = BigInt(42 + i);
+            const fee = BigInt(128 + i);
+            const refund = BigInt(256 + i);
 
             try {
                 const { commitment, nullifierHash } = await getCommitment(secretKey, nullifier);
@@ -50,7 +52,9 @@ describe("Withdraw circuit test", function () {
                     receiver,
                     commitment,
                     nullifierHash,
-                    isWithdraw
+                    relayer,
+                    fee, 
+                    refund
                 });
             } catch (error) {
                 console.error(`Error creating commitment ${i}:`, error);
@@ -81,7 +85,9 @@ describe("Withdraw circuit test", function () {
                 nullifierHash: commitments[i].nullifierHash,
                 secretKey: commitments[i].secretKey,
                 commitment: commitments[i].commitment,
-                isWithdraw: commitments[i].isWithdraw
+                relayer: commitments[i].relayer,
+                fee: commitments[i].fee,
+                refund: commitments[i].refund
             });
         }
 

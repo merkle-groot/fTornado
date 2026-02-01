@@ -24,16 +24,16 @@ template wrapOrWithdraw(nLevels) {
     signal input root;
     // bind the receiver to the proof
     signal input receiver;
-    // bind the isWithdraw flag to the proof
-    // 1 - Withdraw from protocol
-    // 0 - Wrap tokens in the protocol
-    signal input isWithdraw;
 	signal input siblings[nLevels];
 	signal input isLeft[nLevels];
     signal input nullifier;
     signal input nullifierHash;
     signal input secretKey;
     signal input commitment;
+    signal input relayer;
+    signal input fee;
+    signal input refund;
+
 
     // check existense proof
     component merkleVerifier = MerkleVerifier(nLevels);
@@ -53,4 +53,4 @@ template wrapOrWithdraw(nLevels) {
     commitmentChecker.commitment <== commitment;
 }
 
-component main{public [root, receiver, nullifierHash, isWithdraw]} = wrapOrWithdraw(31);
+component main{public [root, receiver, nullifierHash, relayer, fee, refund]} = wrapOrWithdraw(31);
