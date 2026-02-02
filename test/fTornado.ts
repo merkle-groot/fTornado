@@ -6,7 +6,9 @@ import { expect } from "chai";
 import {MerkleTree} from "../circuits/tests/helpers/merkleTree";
 // @ts-ignore - JS module without types
 import {hash as PoseidonHash} from "../circuits/tests/helpers/poseidon";
-import { ZKProofGenerator, generateCircuitInput } from "./helpers/zkProof";
+import { ZKProofGenerator, generateCircuitInput, proofToCalldata } from "./helpers/zkProof";
+
+const PRIME_FIELD = BigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
 
 async function deployFixture() {
   const [deployer, alice, bob] = await ethers.getSigners();
@@ -167,10 +169,8 @@ describe("fTornado - Withdraw Happy Path", function () {
 
   it("should successfully withdraw using dynamically generated zk proof", async function () {
     // Step 1: Generate and store a commitment
-    // Use values within the Baby Jubjub field size (~2^251)
-    const fieldSize = BigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
-    const nullifier = BigInt(ethers.hexlify(ethers.randomBytes(20))) % fieldSize;
-    const secret = BigInt(ethers.hexlify(ethers.randomBytes(20))) % fieldSize;
+    const nullifier = BigInt("386047479504313200969997545087889726331497409969");
+    const secret = BigInt("307182347542640475776906164566663257633696401053");
 
     const commitmentBigInt = await merkleTree.getHash(secret, nullifier);
     const commitment = ethers.zeroPadValue(ethers.toBeHex(commitmentBigInt), 32);
@@ -198,13 +198,13 @@ describe("fTornado - Withdraw Happy Path", function () {
     const relayer = bob;
     const fee = ethers.parseEther("0.03");
     const refund = ethers.parseEther("0.01");
+    
+    // Debug: save circuit input for inspection
+    const proofGen = new ZKProofGenerator("wrapOrWithdraw");
 
-    console.log("Merkle path siblings length:", merklePath.siblings.length);
-    console.log("Merkle path isLeft length:", merklePath.isLeft.length);
-
-    // Step 4: Generate circuit inputs
-    // For withdraw: isWithdraw = 1
-    const circuitInput = generateCircuitInput(
+    // Step 5: Generate zk-SNARK proof
+    console.log("Generating zk-SNARK proof...");
+    const proofData = await proofGen.generateProof(
       nullifier,
       secret,
       merklePath,
@@ -213,71 +213,19 @@ describe("fTornado - Withdraw Happy Path", function () {
       31, // Tree depth to match contract and circuit
       relayer.address, 
       fee,
-      refund
+      refund,
+      commitment,
+      nullifierHash
     );
+    const encodedProof = proofToCalldata(proofData.proof);
 
-    // Calculate commitment and nullifierHash for circuit input
-    circuitInput.commitment = commitmentBigInt.toString();
-    circuitInput.nullifierHash = nullifierHashBigInt.toString();
-
-    // Debug: save circuit input for inspection
-    const proofGen = new ZKProofGenerator("wrapOrWithdraw");
-    proofGen.saveInput(circuitInput, "withdraw_test_input.json");
-
-    // Step 5: Generate zk-SNARK proof
-    console.log("Generating zk-SNARK proof...");
-    const proofData = await proofGen.generateProof(circuitInput);
-
-    console.log("Proof generated successfully!");
-    console.log("Public signals:", proofData.publicSignals);
-
-    // Debug: Compare roots
-    const proofRoot = proofData.publicSignals[0];
-    const proofRootBigInt = BigInt(proofRoot);
-    const proofRootHex = ethers.zeroPadValue(ethers.toBeHex(proofRootBigInt), 32);
-
-    console.log("Root from proof:", proofRoot);
-    console.log("Root from proof (hex):", proofRootHex);
-    console.log("Root from test:", rootBigInt.toString());
-    console.log("Root from test (hex):", root);
-    console.log("Contract last root:", await fTornado.getLastRoot());
-
-    // Check if root is known
-    const knownRoot = await fTornado.isKnownRoot(root);
-    console.log("Is test root known?", knownRoot);
-
-    const knownRootFromProof = await fTornado.isKnownRoot(proofRootHex);
-    console.log("Is proof root known?", knownRootFromProof);
-
-    // Use the proof root since that's what the circuit verified
-    const rootForContract = proofRootHex;
-
-    // Get balances before
     const aliceBalanceBefore = await mockToken.balanceOf(alice.address);
     const contractBalanceBefore = await mockToken.balanceOf(await fTornado.getAddress());
 
-    // Step 6: Encode proof for contract call
-    // The verifier expects: pA (uint[2]), pB (uint[2][2]), pC (uint[2])
-    // We need to ABI encode these together
-    // Our proof format is: [pi_a[0], pi_a[1], pi_b[0][1], pi_b[0][0], pi_b[1][1], pi_b[1][0], pi_c[0], pi_c[1]]
-    // We need to reformat to: pA=[pi_a[0], pi_a[1]], pB=[[pi_b[0][0], pi_b[0][1]], [pi_b[1][0], pi_b[1][1]]], pC=[pi_c[0], pi_c[1]]
-    const pA = [proofData.proof[0], proofData.proof[1]];
-    const pB = [
-      [proofData.proof[3], proofData.proof[2]], // Note: swapped due to our storage format
-      [proofData.proof[5], proofData.proof[4]]
-    ];
-    const pC = [proofData.proof[6], proofData.proof[7]];
-
-    // ABI encode the proof components as expected by the verifier
-    const proofEncoded = ethers.AbiCoder.defaultAbiCoder().encode(
-      ["uint256[2]", "uint256[2][2]", "uint256[2]"],
-      [pA, pB, pC]
-    );
-
     // Step 7: Call withdraw with proof
     const withdrawTx = await fTornado.connect(alice).withdraw(
-      proofEncoded,
-      rootForContract,
+      encodedProof,
+      root,
       alice.address,
       nullifierHash,
       relayer.address,
