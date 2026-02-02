@@ -88,7 +88,11 @@
     "chain": "hardhat node --network hardhat --no-deploy",
     "deploy:localhost": "hardhat deploy --network localhost",
     "deploy:sepolia": "hardhat deploy --network sepolia",
-    "verify:sepolia": "hardhat verify --network sepolia"
+    "verify:sepolia": "hardhat verify --network sepolia",
+    "circuits:test": "npx mocha ./circuits/tests/test_withdraw.js",
+    "circuits:build": "chmod +x ./circuits/scripts/setup.sh && ./circuits/scripts/setup.sh",
+    "contracts:compile": "hardhat compile",
+    "contracts:test": "hardhat test"
   },
   "overrides": {
     "ws@>=7.0.0 <7.5.10": ">=7.5.10",

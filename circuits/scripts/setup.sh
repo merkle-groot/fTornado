@@ -1,14 +1,17 @@
 #!/bin/bash
 set -e
 
+# Set the directory to the location of the script
+cd "$(dirname "$0")"
+
 # Configuration
-OUTPUT_DIR="./circuit_artifacts"
-CIRCUIT="./src/wrapOrWithdraw.circom"
+OUTPUT_DIR="../circuit_artifacts"
+CIRCUIT="../src/wrapOrWithdraw.circom"
 CIRCUIT_NAME="wrapOrWithdraw"
 COMPILED_DIR="$OUTPUT_DIR"
 PTAU_DIR="$COMPILED_DIR/ptau"
-CONTRACTS_DIR="../contracts"
-PTAU_PRE="./src/ptau/powersOfTau28_hez_final_15.ptau"
+CONTRACTS_DIR="../../contracts"
+PTAU_PRE="../src/ptau/powersOfTau28_hez_final_15.ptau"
 
 # Check if required tools are installed
 if ! command -v circom &> /dev/null || ! command -v snarkjs &> /dev/null; then
@@ -58,7 +61,7 @@ snarkjs zkey export verificationkey \
     "$COMPILED_DIR/verification_key.json"
 
 echo "Generating Solidity verifier..."
-snarkjs zkey export solidityverifier "$PTAU_DIR/${CIRCUIT_NAME}_final.zkey" "../contracts/verifier.sol"
+snarkjs zkey export solidityverifier "$PTAU_DIR/${CIRCUIT_NAME}_final.zkey" "../../contracts/verifier.sol"
 
 echo "Setup completed successfully!"
 
