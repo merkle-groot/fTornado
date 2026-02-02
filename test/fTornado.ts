@@ -6,9 +6,11 @@ import { expect } from "chai";
 import {MerkleTree} from "../circuits/tests/helpers/merkleTree";
 // @ts-ignore - JS module without types
 import {hash as PoseidonHash} from "../circuits/tests/helpers/poseidon";
-import { ZKProofGenerator, generateCircuitInput, proofToCalldata } from "./helpers/zkProof";
+import { ZKProofGenerator, proofToCalldata } from "./helpers/zkProof";
+import { FhevmType } from "@fhevm/hardhat-plugin";
 
 const PRIME_FIELD = BigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617");
+const denomination = BigInt(100);
 
 async function deployFixture() {
   const [deployer, alice, bob] = await ethers.getSigners();
@@ -29,9 +31,6 @@ async function deployFixture() {
   const verifier = await verifierFactory.deploy();
   await verifier.waitForDeployment();
   const verifierAddress = await verifier.getAddress();
-
-  // Deploy fTornado contract
-  const denomination = ethers.parseEther("1");
 
   const fTornadoFactory = await ethers.getContractFactory("fTornado", {
     libraries: {
@@ -64,7 +63,8 @@ async function deployFixture() {
   await fTornado.waitForDeployment();
 
   // Mint tokens to alice
-  await mockToken.mint(alice.address, ethers.parseEther("100"));
+  await mockToken.mint(alice.address, ethers.parseUnits(denomination.toString(), 6));
+  console.log("parsed denomination: ", ethers.parseUnits(denomination.toString(), 6));
 
   return { fTornado, mockToken, denomination };
 }
@@ -252,5 +252,115 @@ describe("fTornado - Withdraw Happy Path", function () {
     expect(wrapLogs[0].args[1]).to.equal(nullifierHash);
 
     console.log("Withdraw test completed successfully!");
+  });
+});
+
+describe("fTornado - Wrap Happy Path", function () {
+  let deployer: HardhatEthersSigner;
+  let alice: HardhatEthersSigner;
+  let bob: HardhatEthersSigner;
+  let fTornado: FTornado;
+  let mockToken: MockERC20;
+  let denomination: bigint;
+  let merkleTree: MerkleTree;
+
+  before(async function () {
+    const [_deployer, _alice, _bob] = await ethers.getSigners();
+    alice = _alice;
+    bob = _bob;
+    deployer = _deployer;
+    merkleTree = new MerkleTree(31); // Use 31 levels to match the contract and circuit
+    await merkleTree.init();
+  });
+
+  beforeEach(async function () {
+    if (!fhevm.isMock) {
+      this.skip();
+    }
+    const fixture = await deployFixture();
+    fTornado = fixture.fTornado;
+    mockToken = fixture.mockToken;
+    denomination = fixture.denomination;
+  });
+
+  it("should successfully wrap using dynamically generated zk proof", async function () {
+    // Step 1: Generate and store a commitment
+    const nullifier = BigInt("386047479504313200969997545087889726331497409969");
+    const secret = BigInt("307182347542640475776906164566663257633696401053");
+
+    const commitmentBigInt = await merkleTree.getHash(secret, nullifier);
+    const commitment = ethers.zeroPadValue(ethers.toBeHex(commitmentBigInt), 32);
+
+    // Deposit tokens
+    await mockToken.connect(alice).approve(await fTornado.getAddress(), denomination);
+    const depositTx = await fTornado.connect(alice).deposit(commitment, alice.address);
+    await depositTx.wait();
+
+    // Insert into merkle tree
+    await merkleTree.insert(commitmentBigInt);
+
+    console.log("JS merkle tree root: ", merkleTree.getRoot().toString(16));
+    console.log("contract root: ", await fTornado.getLastRoot());
+
+    // Step 2: Generate nullifier hash using Poseidon(1)
+    const nullifierHashBigInt = await merkleTree.getHashN([nullifier]);
+    const nullifierHash = ethers.zeroPadValue(ethers.toBeHex(nullifierHashBigInt), 32);
+
+    // Step 3: Get merkle proof
+    const index = merkleTree.getIndex(commitmentBigInt);
+    const merklePath = merkleTree.getPath(index);
+    const rootBigInt = merkleTree.getRoot();
+    const root = ethers.zeroPadValue(ethers.toBeHex(rootBigInt), 32);
+    const relayer = bob;
+    const fee = ethers.parseEther("0.03");
+    const refund = ethers.parseEther("0.01");
+    
+    // Debug: save circuit input for inspection
+    const proofGen = new ZKProofGenerator("wrapOrWithdraw");
+
+    // Step 5: Generate zk-SNARK proof
+    console.log("Generating zk-SNARK proof...");
+    const proofData = await proofGen.generateProof(
+      nullifier,
+      secret,
+      merklePath,
+      rootBigInt,
+      alice.address,
+      31, // Tree depth to match contract and circuit
+      relayer.address, 
+      fee,
+      refund,
+      commitment,
+      nullifierHash
+    );
+    const encodedProof = proofToCalldata(proofData.proof);
+
+    const aliceBalanceBefore = await fTornado.confidentialBalanceOf(alice.address);
+
+    // Step 7: Call withdraw with proof
+    const wrapTx = await fTornado.connect(alice).wrap(
+      encodedProof,
+      root,
+      alice.address,
+      nullifierHash,
+      relayer.address,
+      fee,
+      refund
+    );
+    await wrapTx.wait();
+
+    // Verify balances changed
+    const aliceBalanceAfter = await fTornado.confidentialBalanceOf(alice.address);
+
+    console.log(aliceBalanceBefore, aliceBalanceAfter);
+
+    const aliceClearBalanceAfter = await fhevm.userDecryptEuint(
+      FhevmType.euint64,
+      aliceBalanceAfter,
+      fTornado,
+      alice
+    );
+    
+    expect(aliceClearBalanceAfter).to.be.equal(denomination);
   });
 });
