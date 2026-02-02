@@ -228,7 +228,7 @@ npm install
 
 Compile the zero-knowledge circuits and generate the verifier contract:
 ```bash
-npm run circuits:compile
+npm run circuits:build
 ```
 
 Run circuit tests to verify correctness:
